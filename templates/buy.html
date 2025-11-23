@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Buy Product</title>
+<style>
+    .container {
+        max-width: 500px;
+        margin: 50px auto;
+        padding: 20px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        font-family: Arial, sans-serif;
+    }
+    label {
+        display: block;
+        margin: 15px 0 5px;
+        font-weight: bold;
+    }
+    select, input, button {
+        width: 100%;
+        padding: 10px;
+        margin: 5px 0 15px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-sizing: border-box;
+    }
+    button {
+        background: #007bff;
+        color: white;
+        border: none;
+        cursor: pointer;
+        font-size: 16px;
+    }
+    button:hover {
+        background: #0056b3;
+    }
+    #status {
+        margin-top: 15px;
+        padding: 10px;
+        border-radius: 4px;
+        text-align: center;
+        font-weight: bold;
+    }
+    .success { background: #d4edda; color: #155724; }
+    .error { background: #f8d7da; color: #721c24; }
+    .warning { background: #fff3cd; color: #856404; }
+    .info-box {
+        background: #d1ecf1;
+        border: 1px solid #bee5eb;
+        border-radius: 4px;
+        padding: 10px;
+        margin: 10px 0;
+        font-size: 14px;
+    }
+</style>
+</head>
+<body>
+<div class="container">
+    <h1>Buy Product</h1>
+
+    <!-- CORS Info Box -->
+    <div class="info-box">
+        <strong>🔒 Secure Endpoint:</strong> This form sends data to a secured DataPilot API endpoint.<br>
+        <small>Only requests from this domain are allowed.</small>
+    </div>
+
+    <label for="customerName">Customer Name:</label>
+    <input type="text" id="customerName" placeholder="Enter your name" value="John Doe">
+
+    <label for="customerEmail">Customer Email:</label>
+    <input type="email" id="customerEmail" placeholder="Enter your email" value="john@example.com">
+
+    <label for="product">Select Product:</label>
+    <select id="product">
+        <option value="Laptop">Laptop - $999.99</option>
+        <option value="Phone">Phone - $699.99</option>
+        <option value="Headphones">Headphones - $199.99</option>
+    </select>
+
+    <label for="quantity">Quantity:</label>
+    <input type="number" id="quantity" min="1" value="1">
+
+    <button id="buyBtn">Buy Now</button>
+
+    <div id="status"></div>
+</div>
+
+<script>
+const buyBtn = document.getElementById("buyBtn");
+const statusEl = document.getElementById("status");
+
+// Your DataPilot API endpoint - updated with new endpoint key
+const DATAPILOT_ENDPOINT = "https://datapilot-ai.onrender.com/datasets/api/incoming/1bb5b381d1cc/";
+
+// Get current origin for CORS validation
+const CURRENT_ORIGIN = window.location.origin;
+
+buyBtn.addEventListener("click", async () => {
+    const product = document.getElementById("product").value;
+    const quantity = parseInt(document.getElementById("quantity").value);
+    const customerName = document.getElementById("customerName").value;
+    const customerEmail = document.getElementById("customerEmail").value;
+    
+    // Validate required fields
+    if (!customerName || !customerEmail) {
+        statusEl.innerHTML = "❌ Please fill in all required fields";
+        statusEl.className = "error";
+        return;
+    }
+    
+    // Calculate price based on product
+    const prices = {
+        "Laptop": 999.99,
+        "Phone": 699.99,
+        "Headphones": 199.99
+    };
+    
+    const unitPrice = prices[product];
+    const totalAmount = unitPrice * quantity;
+
+    const orderData = {
+        order_id: "ORD_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9),
+        customer_name: customerName,
+        customer_email: customerEmail,
+        product: product,
+        quantity: quantity,
+        unit_price: unitPrice,
+        total_amount: totalAmount,
+        currency: "USD",
+        order_date: new Date().toISOString(),
+        status: "pending",
+        // Additional metadata for better tracking
+        source: "ecommerce_website",
+        page_url: window.location.href,
+        user_agent: navigator.userAgent,
+        screen_resolution: `${screen.width}x${screen.height}`,
+        timestamp: new Date().toISOString()
+    };
+
+    // Show loading state
+    statusEl.innerHTML = "🔄 Sending order to DataPilot...";
+    statusEl.className = "";
+
+    try {
+        // Send to your DataPilot endpoint with CORS handling
+        const response = await fetch(DATAPILOT_ENDPOINT, {
+            method: "POST",
+            headers: { 
+                "Content-Type": "application/json",
+                // Optional: Add authentication token if configured
+                // "X-API-Token": "your_auth_token_here"
+            },
+            body: JSON.stringify(orderData),
+            // Important for CORS with credentials
+            mode: 'cors',
+            credentials: 'omit' // or 'include' if you need cookies
+        });
+
+        // Check if the response is OK
+        if (!response.ok) {
+            // Handle CORS errors specifically
+            if (response.status === 0 || response.type === 'opaque') {
+                throw new Error("CORS blocked: This domain is not allowed to access the endpoint");
+            }
+            
+            const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+            throw new Error(errorData.error || `HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        if (data.success) {
+            statusEl.innerHTML = `✅ Order sent to DataPilot!<br>
+                                <small>Order ID: ${orderData.order_id}<br>
+                                Record ID: ${data.record_id}</small>`;
+            statusEl.className = "success";
+            
+            // Optional: Also send to your original backend
+            sendToOriginalBackend(orderData);
+        } else {
+            throw new Error(data.error || "Unknown error from DataPilot");
+        }
+        
+    } catch (err) {
+        // Handle specific CORS errors
+        if (err.name === 'TypeError' && err.message.includes('Failed to fetch')) {
+            statusEl.innerHTML = `❌ CORS Error: Cannot connect to DataPilot endpoint.<br>
+                                <small>Make sure this domain (${CURRENT_ORIGIN}) is allowed in your DataPilot dataset settings.</small>`;
+            statusEl.className = "error";
+        } else if (err.message.includes('CORS blocked')) {
+            statusEl.innerHTML = `❌ Security Error: ${err.message}<br>
+                                <small>This domain (${CURRENT_ORIGIN}) is not authorized to send data.</small>`;
+            statusEl.className = "error";
+        } else {
+            statusEl.innerHTML = `❌ Failed to send to DataPilot: ${err.message}`;
+            statusEl.className = "error";
+        }
+        console.error("DataPilot API Error:", err);
+    }
+});
+
+// Optional: Also send to your original backend for processing
+function sendToOriginalBackend(orderData) {
+    fetch("http://127.0.0.1:5000/api/new-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            product: orderData.product,
+            quantity: orderData.quantity,
+            customer: orderData.customer_name,
+            order_id: orderData.order_id,
+            total_amount: orderData.total_amount
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        console.log("Original backend response:", data);
+    })
+    .catch(err => {
+        console.error("Original backend error:", err);
+    });
+}
+
+// Enhanced test data function
+function fillTestData() {
+    const names = ["John Doe", "Jane Smith", "Bob Johnson", "Alice Brown", "Charlie Wilson"];
+    const emails = ["john@example.com", "jane@example.com", "bob@example.com", "alice@example.com", "charlie@example.com"];
+    const products = ["Laptop", "Phone", "Headphones"];
+    
+    const randomName = names[Math.floor(Math.random() * names.length)];
+    const randomEmail = emails[Math.floor(Math.random() * emails.length)];
+    const randomProduct = products[Math.floor(Math.random() * products.length)];
+    const randomQuantity = Math.floor(Math.random() * 5) + 1;
+    
+    document.getElementById("customerName").value = randomName;
+    document.getElementById("customerEmail").value = randomEmail;
+    document.getElementById("product").value = randomProduct;
+    document.getElementById("quantity").value = randomQuantity;
+    
+    statusEl.innerHTML = "🔄 Test data filled. Click 'Buy Now' to test.";
+    statusEl.className = "warning";
+}
+
+// Add test button for easy testing
+const testBtn = document.createElement('button');
+testBtn.textContent = 'Fill Test Data';
+testBtn.type = 'button';
+testBtn.style.background = '#28a745';
+testBtn.style.marginTop = '10px';
+testBtn.onclick = fillTestData;
+document.querySelector('.container').appendChild(testBtn);
+
+// Add CORS diagnostic info
+const corsInfo = document.createElement('div');
+corsInfo.className = 'info-box';
+corsInfo.innerHTML = `
+    <strong>🔍 CORS Diagnostic:</strong><br>
+    Current Origin: ${CURRENT_ORIGIN}<br>
+    Target Endpoint: ${DATAPILOT_ENDPOINT}<br>
+    <small>For this to work, your DataPilot dataset must allow: ${CURRENT_ORIGIN}</small>
+`;
+document.querySelector('.container').insertBefore(corsInfo, document.querySelector('.info-box').nextSibling);
+
+// Test CORS preflight on page load
+window.addEventListener('load', () => {
+    console.log('🔍 Testing CORS configuration...');
+    console.log('Current Origin:', CURRENT_ORIGIN);
+    console.log('DataPilot Endpoint:', DATAPILOT_ENDPOINT);
+});
+</script>
+</body>
+</html>
